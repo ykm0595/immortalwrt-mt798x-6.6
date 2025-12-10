@@ -1,0 +1,123 @@
+name: Build-SL3000
+
+on:
+  workflow_dispatch:   # ✅ 手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout source
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    # ✅ 显示当前仓库内核版本（确认未被上游覆盖）
+    - name: Show kernel version
+      run: |
+        echo "===== Kernel Version in Repo ====="
+        cat openwrt/include/kernel-version.mk || echo "kernel-version.mk missing"
+
+    # ✅ 释放磁盘空间（最强清理版）
+    - name: Free Disk Space
+      run: |
+        sudo rm -rf /usr/share/dotnet \
+                    /usr/local/lib/android \
+                    /opt/ghc \
+                    /opt/hostedtoolcache \
+                    /usr/local/share/boost \
+                    /usr/lib/jvm \
+                    /opt/az \
+                    /opt/microsoft \
+                    /usr/lib/google-cloud-sdk
+        sudo docker image prune -a -f
+        sudo apt-get clean
+        sudo rm -rf /var/lib/apt/lists/*
+        df -h
+
+    # ✅ 安装构建依赖
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential clang flex bison g++ gawk gcc-multilib \
+          gettext git libncurses5-dev libssl-dev python3-distutils \
+          rsync unzip zlib1g-dev file wget ccache
+
+    # ✅ ccache 缓存（固定 key）
+    - name: Setup ccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ccache-${{ runner.os }}-sl3000
+        restore-keys: |
+          ccache-${{ runner.os }}-
+
+    - name: Configure ccache
+      run: |
+        echo 'export CC="ccache gcc"' >> ~/.bashrc
+        echo 'export CXX="ccache g++"' >> ~/.bashrc
+        source ~/.bashrc
+        ccache -M 5G
+        ccache -o compression=true
+        ccache -o compression_level=6
+        ccache -s
+
+    - name: ccache stats (before)
+      run: ccache -s
+
+    # ✅ 准备 OpenWrt 源码（使用你仓库里的 openwrt，不 clone 上游）
+    - name: Prepare OpenWrt
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    # ✅ 应用 SL3000 配置
+    - name: Apply Config
+      run: |
+        cp ./configs/sl3000.config ./openwrt/.config
+        cd openwrt
+        make defconfig
+
+    # ✅ 构建工具链
+    - name: Build Toolchain
+      run: |
+        cd openwrt
+        make toolchain/install -j$(nproc)
+
+    # ✅ 下载依赖
+    - name: Download Packages
+      run: |
+        cd openwrt
+        make download -j8
+
+    # ✅ 编译固件
+    - name: Build Firmware
+      run: |
+        cd openwrt
+        make -j$(nproc) BUILD_LOG=1 || make -j1 V=s
+
+    - name: ccache stats (after)
+      run: ccache -s
+
+    # ✅ 上传构建产物
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: SL3000-EMMC-Firmware
+        path: openwrt/bin/targets/
+
+    # ✅ 自动发布 Release
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: SL3000-${{ github.run_id }}
+        name: "SL3000 EMMC Build ${{ github.run_id }}"
+        files: |
+          openwrt/bin/targets/**/*.bin
+          openwrt/bin/targets/**/*.img
+          openwrt/bin/targets/**/*.manifest
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
