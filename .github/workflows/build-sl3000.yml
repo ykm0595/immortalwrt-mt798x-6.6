@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04   # ✅ 强制使用 GitHub 官方云 Runner
 
     steps:
     - name: Checkout source
@@ -14,32 +14,22 @@ jobs:
         fetch-depth: 0
 
     # ============================
-    # ✅ 终极磁盘清理（释放 25–35GB）
+    # ✅ 官方云 Runner 终极磁盘清理（释放 25–35GB）
     # ============================
-    - name: Ultimate Disk Clean
+    - name: Ultimate Disk Clean (GitHub Cloud Runner)
       run: |
         echo "=== Removing heavy directories ==="
-        sudo rm -rf /usr/share/dotnet || true
-        sudo rm -rf /usr/local/lib/android || true
-        sudo rm -rf /opt/hostedtoolcache || true
-        sudo rm -rf /usr/lib/jvm || true
-        sudo rm -rf /usr/local/share/boost || true
-        sudo rm -rf /opt/az || true
-        sudo rm -rf /opt/microsoft || true
-        sudo rm -rf /usr/lib/google-cloud-sdk || true
+        sudo rm -rf /usr/share/dotnet \
+                    /usr/local/lib/android \
+                    /opt/ghc \
+                    /opt/hostedtoolcache \
+                    /usr/local/share/boost \
+                    /usr/lib/jvm \
+                    /opt/az \
+                    /opt/microsoft \
+                    /usr/lib/google-cloud-sdk
 
-        # 强制卸载 overlayfs（关键）
-        sudo umount /usr/local/lib/android || true
-        sudo umount /usr/share/dotnet || true
-
-        # 再删一次（关键）
-        sudo rm -rf /usr/local/lib/android || true
-        sudo rm -rf /usr/share/dotnet || true
-
-        # 删除 docker 层
-        sudo systemctl stop docker || true
-        sudo rm -rf /var/lib/docker || true
-
+        sudo docker image prune -a -f
         sudo apt-get clean
         sudo rm -rf /var/lib/apt/lists/*
 
@@ -93,7 +83,6 @@ jobs:
     # ============================
     - name: Clean Build Directories
       run: |
-        echo "=== Cleaning build directories ==="
         rm -rf build_dir staging_dir tmp
         mkdir -p build_dir staging_dir tmp
 
@@ -104,7 +93,6 @@ jobs:
       run: |
         ./scripts/feeds update -a
 
-        # 只安装你需要的包
         ./scripts/feeds install -p packages docker dockerd docker-compose
         ./scripts/feeds install -p luci luci-app-dockerman luci-app-samba4 luci-app-wireguard luci-app-openvpn luci-app-ddns luci-app-upnp
         ./scripts/feeds install -a -p routing
