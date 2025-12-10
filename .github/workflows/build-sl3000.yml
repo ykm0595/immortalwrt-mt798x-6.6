@@ -3,9 +3,12 @@ name: Build-SL3000-Full
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read   # ✅ 强制 GitHub 使用裸机云 Runner（关键）
+
 jobs:
   build:
-    runs-on: ubuntu-22.04   # ✅ 强制使用 GitHub 官方云 Runner
+    runs-on: ubuntu-22.04   # ✅ 官方云 Runner（VM）
 
     steps:
     - name: Checkout source
