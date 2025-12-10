@@ -1,4 +1,4 @@
-name: Build-SL3000-3Variants
+name: Build-SL3000-Full
 
 on:
   workflow_dispatch:
@@ -58,61 +58,17 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    # ============================
-    # ✅ 构建 1：稳定版
-    # ============================
-    - name: Build Stable Version
+    - name: Apply Full Config
       run: |
-        echo "=== Building Stable Version ==="
-        cp configs/sl3000-stable.config .config
-        make defconfig
-        make -j$(nproc) || make -j1 V=s
-        mkdir -p output/stable
-        cp -r bin/targets/* output/stable/
-
-    # ============================
-    # ✅ 构建 2：Docker 版
-    # ============================
-    - name: Build Docker Version
-      run: |
-        echo "=== Building Docker Version ==="
-        rm -rf bin/targets
-        cp configs/sl3000-docker.config .config
-        make defconfig
-        make -j$(nproc) || make -j1 V=s
-        mkdir -p output/docker
-        cp -r bin/targets/* output/docker/
-
-    # ============================
-    # ✅ 构建 3：全功能版
-    # ============================
-    - name: Build Full Version
-      run: |
-        echo "=== Building Full Version ==="
-        rm -rf bin/targets
         cp configs/sl3000-full.config .config
         make defconfig
-        make -j$(nproc) || make -j1 V=s
-        mkdir -p output/full
-        cp -r bin/targets/* output/full/
 
-    # ============================
-    # ✅ 上传三套固件
-    # ============================
-    - name: Upload Stable Firmware
-      uses: actions/upload-artifact@v4
-      with:
-        name: SL3000-Stable
-        path: output/stable/
+    - name: Build Firmware
+      run: |
+        make -j$(nproc) BUILD_LOG=1 || make -j1 V=s
 
-    - name: Upload Docker Firmware
-      uses: actions/upload-artifact@v4
-      with:
-        name: SL3000-Docker
-        path: output/docker/
-
-    - name: Upload Full Firmware
+    - name: Upload Firmware
       uses: actions/upload-artifact@v4
       with:
         name: SL3000-Full
-        path: output/full/
+        path: bin/targets/
