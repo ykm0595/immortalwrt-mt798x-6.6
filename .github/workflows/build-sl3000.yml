@@ -1,59 +1,49 @@
-name: Build-SL3000-Full
+name: Build-SL3000
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: read   # ✅ 强制 GitHub 使用裸机云 Runner（关键）
+  schedule:
+    - cron: "0 3 * * *"   # 每天凌晨 3 点自动构建
 
 jobs:
+
+  # ============================================================
+  # 1. 编译 SL3000 固件（不再同步上游）
+  # ============================================================
   build:
-    runs-on: ubuntu-22.04   # ✅ 官方云 Runner（VM）
+    runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout source
+    # -----------------------------
+    # Checkout 当前仓库（你的 fork）
+    # -----------------------------
+    - name: Checkout
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
-    # ============================
-    # ✅ 官方云 Runner 终极磁盘清理（释放 25–35GB）
-    # ============================
-    - name: Ultimate Disk Clean (GitHub Cloud Runner)
+    # -----------------------------
+    # 释放磁盘空间（终极版）
+    # -----------------------------
+    - name: Free Disk Space
       run: |
-        echo "=== Removing heavy directories ==="
-        sudo rm -rf /usr/share/dotnet \
-                    /usr/local/lib/android \
-                    /opt/ghc \
-                    /opt/hostedtoolcache \
-                    /usr/local/share/boost \
-                    /usr/lib/jvm \
-                    /opt/az \
-                    /opt/microsoft \
-                    /usr/lib/google-cloud-sdk
-
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /opt/hostedtoolcache
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf /usr/lib/jvm
+        sudo rm -rf /opt/az
+        sudo rm -rf /opt/microsoft
+        sudo rm -rf /usr/lib/google-cloud-sdk
         sudo docker image prune -a -f
         sudo apt-get clean
         sudo rm -rf /var/lib/apt/lists/*
-
-        echo "=== Disk after cleanup ==="
         df -h
 
-    # ============================
-    # ✅ 自动检测磁盘空间（不足 20GB 直接退出）
-    # ============================
-    - name: Check Disk Space
-      run: |
-        AVAIL=$(df / | tail -1 | awk '{print $4}')
-        if [ "$AVAIL" -lt 20971520 ]; then
-          echo "❌ ERROR: Not enough disk space (<20GB)."
-          exit 1
-        fi
-        echo "✅ Disk space OK"
-
-    # ============================
-    # ✅ 安装依赖
-    # ============================
+    # -----------------------------
+    # 安装依赖
+    # -----------------------------
     - name: Install Dependencies
       run: |
         sudo apt-get update
@@ -62,14 +52,14 @@ jobs:
           gettext git libncurses5-dev libssl-dev python3-distutils \
           rsync unzip zlib1g-dev file wget ccache
 
-    # ============================
-    # ✅ ccache 缓存
-    # ============================
+    # -----------------------------
+    # ccache（固定 key）
+    # -----------------------------
     - name: Setup ccache
       uses: actions/cache@v4
       with:
         path: ~/.ccache
-        key: ccache-${{ runner.os }}-${{ github.sha }}
+        key: ccache-${{ runner.os }}-sl3000
         restore-keys: |
           ccache-${{ runner.os }}-
 
@@ -77,49 +67,86 @@ jobs:
       run: |
         echo 'export CC="ccache gcc"' >> ~/.bashrc
         echo 'export CXX="ccache g++"' >> ~/.bashrc
+        echo 'export HOSTCC="ccache gcc"' >> ~/.bashrc
+        echo 'export HOSTCXX="ccache g++"' >> ~/.bashrc
         source ~/.bashrc
         ccache -M 5G
+        ccache -o compression=true
+        ccache -o compression_level=6
+        ccache -o sloppiness=file_macro,include_file_mtime,include_file_ctime
         ccache -s
 
-    # ============================
-    # ✅ 构建前自动清理（避免脏缓存）
-    # ============================
-    - name: Clean Build Directories
-      run: |
-        rm -rf build_dir staging_dir tmp
-        mkdir -p build_dir staging_dir tmp
+    - name: ccache stats (before)
+      run: ccache -s
 
-    # ============================
-    # ✅ 精准 feeds（避免 exim/python 警告）
-    # ============================
-    - name: Prepare Feeds
+    # -----------------------------
+    # 使用当前仓库作为源码（不再 clone 上游）
+    # -----------------------------
+    - name: Prepare Source
       run: |
+        mv ./ ./openwrt
+        cd openwrt
         ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-        ./scripts/feeds install -p packages docker dockerd docker-compose
-        ./scripts/feeds install -p luci luci-app-dockerman luci-app-samba4 luci-app-wireguard luci-app-openvpn luci-app-ddns luci-app-upnp
-        ./scripts/feeds install -a -p routing
-
-    # ============================
-    # ✅ 应用 SL3000-Full 配置
-    # ============================
-    - name: Apply Full Config
+    # -----------------------------
+    # 应用 SL3000 配置
+    # -----------------------------
+    - name: Apply Config
       run: |
-        cp configs/sl3000-full.config .config
+        cp ./configs/sl3000.config ./openwrt/.config
+        cd openwrt
         make defconfig
 
-    # ============================
-    # ✅ 构建固件
-    # ============================
+    # -----------------------------
+    # 工具链预热
+    # -----------------------------
+    - name: Build Toolchain
+      run: |
+        cd openwrt
+        make toolchain/install -j$(nproc)
+
+    # -----------------------------
+    # 下载依赖
+    # -----------------------------
+    - name: Download Packages
+      run: |
+        cd openwrt
+        make download -j8
+
+    # -----------------------------
+    # 编译固件
+    # -----------------------------
     - name: Build Firmware
       run: |
+        cd openwrt
         make -j$(nproc) BUILD_LOG=1 || make -j1 V=s
 
-    # ============================
-    # ✅ 上传固件
-    # ============================
-    - name: Upload Firmware
+    - name: ccache stats (after)
+      run: ccache -s
+
+    # -----------------------------
+    # 上传构建产物
+    # -----------------------------
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: SL3000-Full
-        path: bin/targets/
+        name: SL3000-EMMC-Firmware
+        path: openwrt/bin/targets/
+
+    # -----------------------------
+    # 自动发布 Release
+    # -----------------------------
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: SL3000-${{ github.run_id }}
+        name: "SL3000 EMMC Build ${{ github.run_id }}"
+        draft: false
+        prerelease: false
+        files: |
+          openwrt/bin/targets/**/*.bin
+          openwrt/bin/targets/**/*.img
+          openwrt/bin/targets/**/*.manifest
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
