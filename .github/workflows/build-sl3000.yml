@@ -11,6 +11,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
+    # ===== 释放磁盘空间（必需）=====
     - name: Free disk space
       run: |
         sudo rm -rf /usr/share/dotnet
@@ -21,6 +22,7 @@ jobs:
         sudo docker system prune -af || true
         df -h
 
+    # ===== 安装依赖 =====
     - name: Install dependencies
       run: |
         sudo apt update
@@ -28,40 +30,52 @@ jobs:
           gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev \
           python3 python3-pip rsync unzip zlib1g-dev file wget
 
+    # ===== 缓存 dl =====
     - name: Cache dl
       uses: actions/cache@v4
       with:
         path: dl
-        key: ${{ runner.os }}-dl-${{ hashFiles('include/kernel-6.6') }}
+        key: ${{ runner.os }}-dl-${{ hashFiles('include/kernel-6.6', 'target/linux/*') }}
         restore-keys: |
           ${{ runner.os }}-dl-
 
+    # ===== 缓存 staging_dir（工具链）=====
     - name: Cache staging_dir
       uses: actions/cache@v4
       with:
         path: staging_dir
-        key: ${{ runner.os }}-staging-${{ hashFiles('include/kernel-6.6') }}
+        key: ${{ runner.os }}-staging-${{ hashFiles('include/kernel-6.6', 'target/linux/*') }}
         restore-keys: |
           ${{ runner.os }}-staging-
 
+    # ===== 缓存 host 工具 =====
     - name: Cache build_dir_host
       uses: actions/cache@v4
       with:
         path: build_dir/host
-        key: ${{ runner.os }}-host-${{ hashFiles('include/kernel-6.6') }}
+        key: ${{ runner.os }}-host-${{ hashFiles('include/kernel-6.6', 'target/linux/*') }}
         restore-keys: |
           ${{ runner.os }}-host-
 
+    # ===== 清理旧构建（避免脏缓存）=====
     - name: Clean build leftovers
       run: |
         rm -rf build_dir/target-*
         rm -rf bin
 
+    # ===== 清理 target/linux + toolchain（解决 download 失败）=====
+    - name: Clean target linux
+      run: |
+        rm -rf build_dir/target-*
+        rm -rf staging_dir/toolchain-*
+
+    # ===== 清理旧内核 tar.xz（避免 6.6.30 残留）=====
     - name: Clean old kernel tarballs
       run: |
         rm -f dl/linux-6.6.*.tar.xz*
         rm -f dl/*.tmp
 
+    # ===== 加载 SL3000 配置 =====
     - name: Load SL3000 config
       run: |
         cp configs/sl3000-full.config .config
@@ -70,11 +84,13 @@ jobs:
       run: |
         make defconfig
 
+    # ===== 修正 TARGET_PROFILE =====
     - name: Fix TARGET_PROFILE
       run: |
         sed -i '/^CONFIG_TARGET_PROFILE=/d' .config
         echo 'CONFIG_TARGET_PROFILE="DEVICE_sl3000"' >> .config
 
+    # ===== 校验 SL3000 是否被识别 =====
     - name: Verify SL3000 target
       run: |
         echo "===== Checking SL3000 target ====="
@@ -84,20 +100,24 @@ jobs:
         }
         echo "SL3000 target verified."
 
+    # ===== 下载源码 =====
     - name: Download sources
       run: |
         make download -j8
 
+    # ===== 编译固件 =====
     - name: Build firmware
       run: |
         make -j$(nproc) || make -j1 V=s
 
+    # ===== 上传 Artifact =====
     - name: Upload firmware to artifact
       uses: actions/upload-artifact@v4
       with:
         name: sl3000-firmware
         path: bin/targets/mediatek/filogic/*
 
+    # ===== 发布 Release（仅手动触发）=====
     - name: Upload to Releases
       if: github.event_name == 'workflow_dispatch'
       uses: softprops/action-gh-release@v2
