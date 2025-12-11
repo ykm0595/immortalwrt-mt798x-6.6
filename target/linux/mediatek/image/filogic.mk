@@ -122,6 +122,28 @@ define Device/abt_asr3000
 endef
 TARGET_DEVICES += abt_asr3000
 
+define Device/sl3000
+  DEVICE_VENDOR := Siluo
+  DEVICE_MODEL := SL3000
+  DEVICE_DTS := mt7981-sl3000
+  DEVICE_DTS_DIR := ../dts
+  DEVICE_PACKAGES := \
+    kmod-mt76-core kmod-mt76-connac kmod-mt76-phy kmod-mt7981-wed \
+    kmod-mtk-hnat kmod-mtk-ppe \
+    kmod-nft-offload kmod-ipt-fullconenat \
+    kmod-tcp-bbr ethtool tcpdump-mini \
+    kmod-fs-ext4 kmod-fs-btrfs kmod-fs-xfs kmod-fs-overlay \
+    kmod-br-netfilter kmod-nf-conntrack kmod-nf-conntrack6 kmod-nf-conntrack-netlink \
+    kmod-nf-ipt kmod-nf-ipt6 kmod-nf-nat kmod-nf-nat6 kmod-nf-filter kmod-nf-flow kmod-ipt-nat \
+    kmod-veth kmod-macvlan kmod-ipvlan kmod-tun \
+    docker dockerd containerd runc tini \
+    dnsmasq-full iptables-nft firewall4 odhcpd-ipv6only odhcp6c \
+    luci luci-ssl-openssl luci-app-firewall luci-app-opkg \
+    wpad-openssl iw iwinfo hostapd-common wireless-regdb luci-app-wireless-regdb
+  IMAGE/sysupgrade.bin := sysupgrade-tar | append-metadata
+endef
+TARGET_DEVICES += sl3000
+
 define Device/acelink_ew-7886cax
   DEVICE_VENDOR := Acelink
   DEVICE_MODEL := EW-7886CAX
