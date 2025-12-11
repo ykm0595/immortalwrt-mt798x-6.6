@@ -1,9 +1,10 @@
-name: Build SL-3000 Firmware
+name: Build SL3000 Firmware
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 20 * * *'  # 每天 UTC 20 点（按需改）
+  push:
+    branches:
+      - openwrt-24.10-6.6
 
 jobs:
   build:
@@ -18,7 +19,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup build environment
+      - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -28,64 +29,56 @@ jobs:
             libelf-dev ecj fastjar java-propose-classpath subversion \
             texinfo libtool patchutils jq
 
-      - name: Show kernel version config files
-        run: |
-          echo "===== include/kernel-version.mk ====="
-          sed -n '1,80p' include/kernel-version.mk || true
-          echo "===== include/kernel-6.6 ====="
-          sed -n '1,80p' include/kernel-6.6 || true
-
       - name: Prepare feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # ✅ 关键：彻底清理旧 toolchain / build 残留，避免 kernel-headers 版本错乱
-      - name: Full clean (toolchain & build)
+      # ✅ 关键：清理旧 toolchain，解决 kernel-headers 失败
+      - name: Full clean toolchain & build cache
         run: |
           make clean || true
           make dirclean || true
           rm -rf tmp/
 
-      # ✅ 使用仓库里的终极 .config，如果你是保存为 configs/sl3000-ultimate.config 就在这里拷贝
-      - name: Use ultimate SL-3000 config
+      # ✅ 使用你仓库里的 sl3000-full.config
+      - name: Load SL3000 config fragment
         run: |
-          if [ -f configs/sl3000-ultimate.config ]; then
-            cp configs/sl3000-ultimate.config .config
+          if [ -f configs/sl3000-full.config ]; then
+            echo "Using configs/sl3000-full.config"
+            cp configs/sl3000-full.config .config
           else
-            echo "configs/sl3000-ultimate.config not found, using existing .config"
+            echo "ERROR: configs/sl3000-full.config not found!"
+            exit 1
           fi
+          echo "===== Loaded fragment config ====="
           cat .config
 
-      # ✅ 让依赖自动收敛，确保终极 config 不冲突
-      - name: Defconfig
+      # ✅ 自动补齐依赖，生成真正的 .config
+      - name: Generate final .config
         run: |
           make defconfig
+          echo "===== Final .config ====="
+          head -n 200 .config
 
-      # ✅ 先单独构建 toolchain，遇错方便定位（解决你现在的 kernel-headers 问题）
-      - name: Build toolchain only (debug-friendly)
+      # ✅ 单独构建 toolchain，方便排查 kernel-headers
+      - name: Build toolchain
         run: |
           make toolchain/install -j1 V=s
 
-      # ✅ 正式编译固件
+      # ✅ 正式构建固件
       - name: Build firmware
         run: |
           make -j$(nproc) V=s
-        # 如果你觉得日志太多，可以把 V=s 改成 V=sc 或去掉
 
-      # ✅ 打包输出（bin 目录）
-      - name: Organize artifacts
+      # ✅ 打包输出
+      - name: Package firmware
         run: |
           mkdir -p output
-          if [ -d bin ]; then
-            tar -czf output/sl3000-firmware-$(date +%Y%m%d-%H%M%S).tar.gz bin
-          else
-            echo "bin dir not found"
-          fi
+          tar -czf output/sl3000-firmware.tar.gz bin
 
-      - name: Upload firmware artifacts
+      - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
           name: sl3000-firmware
-          path: output/*.tar.gz
-          if-no-files-found: error
+          path: output/sl3000-firmware.tar.gz
