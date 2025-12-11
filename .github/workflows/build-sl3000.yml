@@ -11,7 +11,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    # ===== 释放磁盘空间（必需）=====
+    # ===== 释放磁盘空间 =====
     - name: Free disk space
       run: |
         sudo rm -rf /usr/share/dotnet
@@ -57,16 +57,10 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-host-
 
-    # ===== 清理旧构建（避免脏缓存）=====
-    - name: Clean build leftovers
+    # ===== 关键修复：清理 toolchain（解决 kernel-headers 失败）=====
+    - name: Clean toolchain
       run: |
-        rm -rf build_dir/target-*
-        rm -rf bin
-
-    # ===== 清理 target/linux + toolchain（解决 download 失败）=====
-    - name: Clean target linux and toolchain
-      run: |
-        rm -rf build_dir/target-*
+        rm -rf build_dir/toolchain-*
         rm -rf staging_dir/toolchain-*
 
     # ===== 清理旧内核 tarball（避免 6.6.30 残留）=====
@@ -74,6 +68,16 @@ jobs:
       run: |
         rm -f dl/linux-6.6.*.tar.xz*
         rm -f dl/*.tmp
+
+    # ===== 清理 target/linux（避免旧 kernel config 污染）=====
+    - name: Clean target linux
+      run: |
+        rm -rf build_dir/target-*
+
+    # ===== 清理旧构建输出 =====
+    - name: Clean build leftovers
+      run: |
+        rm -rf bin
 
     # ===== 加载 SL3000 配置 =====
     - name: Load SL3000 config
